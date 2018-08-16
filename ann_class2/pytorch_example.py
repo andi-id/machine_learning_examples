@@ -5,12 +5,6 @@ from builtins import range
 # Note: you may need to update your version of future
 # sudo pip install -U future
 
-# Linux and Mac instructions:
-# http://pytorch.org/#pip-install-pytorch
-
-# Windows instructions (just one line):
-# conda install -c peterjc123 pytorch
-
 # Note: is helpful to look at keras_example.py first
 
 
@@ -26,17 +20,11 @@ from torch import optim
 
 # get the data, same as Theano + Tensorflow examples
 # no need to split now, the fit() function will do it
-X, Y = get_normalized_data()
+Xtrain, Xtest, Ytrain, Ytest = get_normalized_data()
 
 # get shapes
-_, D = X.shape
-K = len(set(Y))
-
-# split the data
-Xtrain = X[:-1000,]
-Ytrain = Y[:-1000]
-Xtest  = X[-1000:,]
-Ytest  = Y[-1000:]
+_, D = Xtrain.shape
+K = len(set(Ytrain))
 
 # Note: no need to convert Y to indicator matrix
 
@@ -76,10 +64,12 @@ optimizer = optim.Adam(model.parameters())
 # so we encapsulate it in a function
 # Note: inputs and labels are torch tensors
 def train(model, loss, optimizer, inputs, labels):
+  # https://discuss.pytorch.org/t/why-is-it-recommended-to-wrap-your-data-with-variable-each-step-of-the-iterations-rather-than-before-training-starts/12683
   inputs = Variable(inputs, requires_grad=False)
   labels = Variable(labels, requires_grad=False)
 
   # Reset gradient
+  # https://discuss.pytorch.org/t/why-do-we-need-to-set-the-gradients-manually-to-zero-in-pytorch/4903/7
   optimizer.zero_grad()
 
   # Forward
@@ -93,7 +83,8 @@ def train(model, loss, optimizer, inputs, labels):
   optimizer.step()
 
   # what's the difference between backward() and step()?
-  return output.data[0]
+  # https://discuss.pytorch.org/t/what-does-the-backward-function-do/9944
+  return output.item()
 
 
 # define the prediction procedure

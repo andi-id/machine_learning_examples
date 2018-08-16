@@ -5,12 +5,6 @@ from builtins import range
 # Note: you may need to update your version of future
 # sudo pip install -U future
 
-# Linux and Mac instructions:
-# http://pytorch.org/#pip-install-pytorch
-
-# Windows instructions (just one line):
-# conda install -c peterjc123 pytorch
-
 # Note: is helpful to look at keras_example.py first
 
 
@@ -26,17 +20,11 @@ from torch import optim
 
 # get the data, same as Theano + Tensorflow examples
 # no need to split now, the fit() function will do it
-X, Y = get_normalized_data()
+Xtrain, Xtest, Ytrain, Ytest = get_normalized_data()
 
 # get shapes
-_, D = X.shape
-K = len(set(Y))
-
-# split the data
-Xtrain = X[:-1000,]
-Ytrain = Y[:-1000]
-Xtest  = X[-1000:,]
-Ytest  = Y[-1000:]
+_, D = Xtrain.shape
+K = len(set(Ytrain))
 
 # Note: no need to convert Y to indicator matrix
 
@@ -94,7 +82,7 @@ def train(model, loss, optimizer, inputs, labels):
 
   # what's the difference between backward() and step()?
 
-  return output.data[0]
+  return output.item()
 
 
 # similar to train() but not doing the backprop step
@@ -106,7 +94,7 @@ def get_cost(model, loss, inputs, labels):
   logits = model.forward(inputs)
   output = loss.forward(logits, labels)
 
-  return output.data[0]
+  return output.item()
 
 
 # define the prediction procedure
@@ -177,9 +165,11 @@ for i in range(epochs):
 plt.plot(train_costs, label='Train cost')
 plt.plot(test_costs, label='Test cost')
 plt.title('Cost')
+plt.legend()
 plt.show()
 
 plt.plot(train_accuracies, label='Train accuracy')
 plt.plot(test_accuracies, label='Test accuracy')
 plt.title('Accuracy')
+plt.legend()
 plt.show()

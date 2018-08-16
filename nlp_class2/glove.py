@@ -10,14 +10,17 @@ from builtins import range
 import os
 import json
 import numpy as np
-import theano
-import theano.tensor as T
-import tensorflow as tf
 import matplotlib.pyplot as plt
 
 from datetime import datetime
 from sklearn.utils import shuffle
-from word2vec import get_wikipedia_data, find_analogies, get_sentences_with_word2idx_limit_vocab
+from util import find_analogies
+
+
+import sys
+sys.path.append(os.path.abspath('..'))
+from rnn_class.util import get_wikipedia_data
+from rnn_class.brown import get_sentences_with_word2idx_limit_vocab, get_sentences_with_word2idx
 
 # using ALS, what's the least # files to get correct analogies?
 # use this for word2vec training to make it faster
@@ -115,50 +118,6 @@ class Glove:
         c = np.zeros(V)
         mu = logX.mean()
 
-        if use_theano:
-            # initialize weights, inputs, targets placeholders
-            thW = theano.shared(W)
-            thb = theano.shared(b)
-            thU = theano.shared(U)
-            thc = theano.shared(c)
-            thLogX = T.matrix('logX')
-            thfX = T.matrix('fX')
-
-            params = [thW, thb, thU, thc]
-
-            thDelta = thW.dot(thU.T) + T.reshape(thb, (V, 1)) + T.reshape(thc, (1, V)) + mu - thLogX
-            thCost = ( thfX * thDelta * thDelta ).sum()
-
-            # regularization
-            thCost += reg*( (thW * thW).sum() + (thU * thU).sum() + (thb * thb).sum() + (thc * thc).sum())
-
-            grads = T.grad(thCost, params)
-
-            updates = [(p, p - learning_rate*g) for p, g in zip(params, grads)]
-
-            train_op = theano.function(
-                inputs=[thfX, thLogX],
-                updates=updates,
-            )
-
-        elif use_tensorflow:
-            # initialize weights, inputs, targets placeholders
-            tfW = tf.Variable(W.astype(np.float32))
-            tfb = tf.Variable(b.reshape(V, 1).astype(np.float32))
-            tfU = tf.Variable(U.astype(np.float32))
-            tfc = tf.Variable(c.reshape(1, V).astype(np.float32))
-            tfLogX = tf.placeholder(tf.float32, shape=(V, V))
-            tffX = tf.placeholder(tf.float32, shape=(V, V))
-
-            delta = tf.matmul(tfW, tf.transpose(tfU)) + tfb + tfc + mu - tfLogX
-            cost = tf.reduce_sum(tffX * delta * delta)
-            for param in (tfW, tfb, tfU, tfc):
-                cost += reg*tf.reduce_sum(param * param)
-
-            train_op = tf.train.MomentumOptimizer(learning_rate, momentum=0.9).minimize(cost)
-            init = tf.global_variables_initializer()
-            session = tf.InteractiveSession()
-            session.run(init)
 
         costs = []
         sentence_indexes = range(len(sentences))
@@ -170,51 +129,38 @@ class Glove:
 
             if gd:
                 # gradient descent method
+                # update W
+                # oldW = W.copy()
+                for i in range(V):
+                    # for j in range(V):
+                    #     W[i] -= learning_rate*fX[i,j]*(W[i].dot(U[j]) + b[i] + c[j] + mu - logX[i,j])*U[j]
+                    W[i] -= learning_rate*(fX[i,:]*delta[i,:]).dot(U)
+                W -= learning_rate*reg*W
+                # print "updated W"
 
-                if use_theano:
-                    train_op(fX, logX)
-                    W = thW.get_value()
-                    b = thb.get_value()
-                    U = thU.get_value()
-                    c = thc.get_value()
+                # update b
+                for i in range(V):
+                    # for j in range(V):
+                    #     b[i] -= learning_rate*fX[i,j]*(W[i].dot(U[j]) + b[i] + c[j] + mu - logX[i,j])
+                    b[i] -= learning_rate*fX[i,:].dot(delta[i,:])
+                # b -= learning_rate*reg*b
+                # print "updated b"
 
-                elif use_tensorflow:
-                    session.run(train_op, feed_dict={tfLogX: logX, tffX: fX})
-                    W, b, U, c = session.run([tfW, tfb, tfU, tfc])
+                # update U
+                for j in range(V):
+                    # for i in range(V):
+                    #     U[j] -= learning_rate*fX[i,j]*(W[i].dot(U[j]) + b[i] + c[j] + mu - logX[i,j])*W[i]
+                    U[j] -= learning_rate*(fX[:,j]*delta[:,j]).dot(W)
+                U -= learning_rate*reg*U
+                # print "updated U"
 
-                else:
-                    # update W
-                    oldW = W.copy()
-                    for i in range(V):
-                        # for j in range(V):
-                        #     W[i] -= learning_rate*fX[i,j]*(W[i].dot(U[j]) + b[i] + c[j] + mu - logX[i,j])*U[j]
-                        W[i] -= learning_rate*(fX[i,:]*delta[i,:]).dot(U)
-                    W -= learning_rate*reg*W
-                    # print "updated W"
-
-                    # update b
-                    for i in range(V):
-                        # for j in range(V):
-                        #     b[i] -= learning_rate*fX[i,j]*(W[i].dot(U[j]) + b[i] + c[j] + mu - logX[i,j])
-                        b[i] -= learning_rate*fX[i,:].dot(delta[i,:])
-                    b -= learning_rate*reg*b
-                    # print "updated b"
-
-                    # update U
-                    for j in range(V):
-                        # for i in range(V):
-                        #     U[j] -= learning_rate*fX[i,j]*(W[i].dot(U[j]) + b[i] + c[j] + mu - logX[i,j])*W[i]
-                        U[j] -= learning_rate*(fX[:,j]*delta[:,j]).dot(oldW)
-                    U -= learning_rate*reg*U
-                    # print "updated U"
-
-                    # update c
-                    for j in range(V):
-                        # for i in range(V):
-                        #     c[j] -= learning_rate*fX[i,j]*(W[i].dot(U[j]) + b[i] + c[j] + mu - logX[i,j])
-                        c[j] -= learning_rate*fX[:,j].dot(delta[:,j])
-                    c -= learning_rate*reg*c
-                    # print "updated c"
+                # update c
+                for j in range(V):
+                    # for i in range(V):
+                    #     c[j] -= learning_rate*fX[i,j]*(W[i].dot(U[j]) + b[i] + c[j] + mu - logX[i,j])
+                    c[j] -= learning_rate*fX[:,j].dot(delta[:,j])
+                # c -= learning_rate*reg*c
+                # print "updated c"
 
             else:
                 # ALS method
@@ -290,7 +236,7 @@ class Glove:
         np.savez(fn, *arrays)
 
 
-def main(we_file, w2i_file, use_brown=True, n_files=50):
+def main(we_file, w2i_file, use_brown=True, n_files=100):
     if use_brown:
         cc_matrix = "cc_matrix_brown.npy"
     else:
@@ -320,17 +266,19 @@ def main(we_file, w2i_file, use_brown=True, n_files=50):
             json.dump(word2idx, f)
 
     V = len(word2idx)
-    model = Glove(100, V, 10)
-    model.fit(sentences, cc_matrix=cc_matrix, epochs=20) # ALS
+    model = Glove(200, V, 10)
+
+    # alternating least squares method
+    model.fit(sentences, cc_matrix=cc_matrix, epochs=20)
+
+    # gradient descent method
     # model.fit(
     #     sentences,
     #     cc_matrix=cc_matrix,
-    #     learning_rate=3e-4,
+    #     learning_rate=5e-4,
     #     reg=0.1,
-    #     epochs=10,
+    #     epochs=500,
     #     gd=True,
-    #     use_theano=False,
-    #     use_tensorflow=True,
     # )
     model.save(we_file)
 
@@ -341,14 +289,32 @@ if __name__ == '__main__':
     # we = 'glove_model_brown.npz'
     # w2i = 'glove_word2idx_brown.json'
     main(we, w2i, use_brown=False)
+    
+    # load back embeddings
+    npz = np.load(we)
+    W1 = npz['arr_0']
+    W2 = npz['arr_1']
+
+    with open(w2i) as f:
+        word2idx = json.load(f)
+        idx2word = {i:w for w,i in word2idx.items()}
+
     for concat in (True, False):
         print("** concat:", concat)
-        find_analogies('king', 'man', 'woman', concat, we, w2i)
-        find_analogies('france', 'paris', 'london', concat, we, w2i)
-        find_analogies('france', 'paris', 'rome', concat, we, w2i)
-        find_analogies('paris', 'france', 'italy', concat, we, w2i)
-        find_analogies('france', 'french', 'english', concat, we, w2i)
-        find_analogies('japan', 'japanese', 'chinese', concat, we, w2i)
-        find_analogies('japan', 'japanese', 'italian', concat, we, w2i)
-        find_analogies('japan', 'japanese', 'australian', concat, we, w2i)
-        find_analogies('december', 'november', 'june', concat, we, w2i)
+
+        if concat:
+            We = np.hstack([W1, W2.T])
+        else:
+            We = (W1 + W2.T) / 2
+
+
+        find_analogies('king', 'man', 'woman', We, word2idx, idx2word)
+        find_analogies('france', 'paris', 'london', We, word2idx, idx2word)
+        find_analogies('france', 'paris', 'rome', We, word2idx, idx2word)
+        find_analogies('paris', 'france', 'italy', We, word2idx, idx2word)
+        find_analogies('france', 'french', 'english', We, word2idx, idx2word)
+        find_analogies('japan', 'japanese', 'chinese', We, word2idx, idx2word)
+        find_analogies('japan', 'japanese', 'italian', We, word2idx, idx2word)
+        find_analogies('japan', 'japanese', 'australian', We, word2idx, idx2word)
+        find_analogies('december', 'november', 'june', We, word2idx, idx2word)
+
